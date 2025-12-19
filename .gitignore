@@ -60,6 +60,9 @@ dist/
 out/
 build/
 
+# Don't ignore frontend lib folder
+!frontend/src/lib/
+
 # OS
 Thumbs.db
 .DS_Store
