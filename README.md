@@ -7,7 +7,6 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/Andrew-Kevin-007/Attendance-App/actions/workflows/ci.yml/badge.svg)](https://github.com/Andrew-Kevin-007/Attendance-App/actions)
 A modern, full-stack attendance and task management solution with cutting-edge facial recognition technology. Built for scalability, security, and ease of deployment.
 
 ---
