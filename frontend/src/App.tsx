@@ -17,6 +17,8 @@ import Employees from "./pages/Employees";
 import NotFound from "./pages/NotFound";
 import Attendance from "./pages/Attendance";
 import RegisterFace from "./pages/RegisterFace";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +31,8 @@ const App: React.FC = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/attendance" element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
           <Route path="/attendance/register" element={<ProtectedRoute><RegisterFace /></ProtectedRoute>} />

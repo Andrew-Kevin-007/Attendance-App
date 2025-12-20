@@ -162,3 +162,102 @@ export const tasksAPI = {
       method: "DELETE",
     }),
 };
+
+// Attendance API
+export const attendanceAPI = {
+  getStatusToday: () => apiRequest<any>("/attendance/status-today"),
+  
+  mark: (data: { image: string; action: string }) =>
+    apiRequest<any>("/attendance/mark", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  getTodaySummary: () => apiRequest<any>("/attendance/today-summary"),
+  
+  getHistory: (params?: { start_date?: string; end_date?: string; user_id?: number }) => {
+    const queryParams = new URLSearchParams();
+    if (params?.start_date) queryParams.append("start_date", params.start_date);
+    if (params?.end_date) queryParams.append("end_date", params.end_date);
+    if (params?.user_id) queryParams.append("user_id", params.user_id.toString());
+    const queryString = queryParams.toString();
+    return apiRequest<any>(`/attendance/history${queryString ? `?${queryString}` : ""}`);
+  },
+  
+  exportReport: async (startDate: string, endDate: string, format: "csv" | "json" = "csv") => {
+    const token = getToken();
+    const response = await fetch(
+      `${API_BASE_URL}/attendance/export?start_date=${startDate}&end_date=${endDate}&format=${format}`,
+      {
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error("Failed to export attendance report");
+    }
+    
+    if (format === "json") {
+      return response.json();
+    } else {
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `attendance_report_${startDate}_to_${endDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      return { success: true };
+    }
+  },
+  
+  bulkAdd: (records: Array<{
+    user_id: number;
+    date: string;
+    check_in?: string;
+    check_out?: string;
+    status?: string;
+  }>) =>
+    apiRequest<any>("/attendance/bulk", {
+      method: "POST",
+      body: JSON.stringify({ records }),
+    }),
+  
+  bulkDelete: (recordIds: number[]) =>
+    apiRequest<any>(`/attendance/bulk?${recordIds.map(id => `record_ids=${id}`).join("&")}`, {
+      method: "DELETE",
+    }),
+  
+  getUsers: () => apiRequest<any[]>("/attendance/users"),
+  
+  registerFace: (data: { user_id: number; image: string }) =>
+    apiRequest<any>("/attendance/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+};
+
+// Password Reset API
+export const passwordAPI = {
+  forgotPassword: (email: string) =>
+    apiRequest<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  
+  resetPassword: (token: string, newPassword: string) =>
+    apiRequest<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
+  
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiRequest<{ message: string }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+};

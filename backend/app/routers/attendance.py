@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime, date
+from typing import Optional, List
+from datetime import datetime, date, timedelta
 import base64
 import os
 import sys
 import numpy as np
+import csv
+import io
 
 from ..utils.deps import get_current_user, admin_or_manager
 from ..database import SessionLocal as MainSession
@@ -36,6 +39,18 @@ class RegisterFaceBody(BaseModel):
 class MarkBody(BaseModel):
     image: str
     action: str = "check_in"  # "check_in" or "check_out"
+
+
+class BulkAttendanceItem(BaseModel):
+    user_id: int
+    date: str  # YYYY-MM-DD
+    check_in: Optional[str] = None  # HH:MM
+    check_out: Optional[str] = None  # HH:MM
+    status: str = "present"  # present, absent, late
+
+
+class BulkAttendanceBody(BaseModel):
+    records: List[BulkAttendanceItem]
 
 
 @router.get("/status-today")
@@ -401,3 +416,356 @@ def list_users_minimal(_=Depends(admin_or_manager)):
         return [{"id": u.id, "name": u.name, "email": u.email, "role": u.role} for u in users]
     finally:
         db.close()
+
+
+@router.get("/export")
+def export_attendance(
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    format: str = Query("csv", description="Export format: csv or json"),
+    _=Depends(admin_or_manager)
+):
+    """Export attendance records for a date range as CSV or JSON."""
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)  # Include end date
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    if start > end:
+        raise HTTPException(status_code=400, detail="Start date must be before end date")
+    
+    main_db = MainSession()
+    face_db = FaceSession()
+    try:
+        # Get all users
+        users = main_db.query(User).all()
+        user_map = {str(u.id): u for u in users}
+        
+        # Get employees
+        employees = face_db.query(Employee).all()
+        emp_user_map = {e.id: user_map.get(e.user_id) for e in employees if e.user_id}
+        
+        # Get attendance records in date range
+        records = (
+            face_db.query(Attendance)
+            .filter(
+                Attendance.timestamp >= start,
+                Attendance.timestamp < end
+            )
+            .order_by(Attendance.timestamp.desc())
+            .all()
+        )
+        
+        # Build export data
+        export_data = []
+        for rec in records:
+            user = emp_user_map.get(rec.employee_id)
+            
+            # Calculate work hours
+            work_hours = None
+            if rec.check_in and rec.check_out:
+                seconds = (rec.check_out - rec.check_in).total_seconds()
+                work_hours = round(seconds / 3600, 2)
+            
+            export_data.append({
+                "date": rec.timestamp.strftime("%Y-%m-%d") if rec.timestamp else "",
+                "employee_id": rec.employee_id,
+                "employee_name": rec.employee_name,
+                "email": user.email if user else "",
+                "role": user.role if user else "",
+                "check_in": rec.check_in.strftime("%Y-%m-%d %H:%M:%S") if rec.check_in else "",
+                "check_out": rec.check_out.strftime("%Y-%m-%d %H:%M:%S") if rec.check_out else "",
+                "work_hours": work_hours if work_hours else "",
+                "check_in_confidence": round(rec.confidence, 2) if rec.confidence else "",
+                "check_out_confidence": round(rec.check_out_confidence, 2) if rec.check_out_confidence else "",
+            })
+        
+        if format.lower() == "json":
+            return {
+                "start_date": start_date,
+                "end_date": end_date,
+                "total_records": len(export_data),
+                "records": export_data
+            }
+        else:
+            # Generate CSV
+            output = io.StringIO()
+            if export_data:
+                writer = csv.DictWriter(output, fieldnames=export_data[0].keys())
+                writer.writeheader()
+                writer.writerows(export_data)
+            else:
+                output.write("No records found for the specified date range")
+            
+            output.seek(0)
+            filename = f"attendance_report_{start_date}_to_{end_date}.csv"
+            
+            return StreamingResponse(
+                iter([output.getvalue()]),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+    finally:
+        main_db.close()
+        face_db.close()
+
+
+@router.get("/history")
+def get_attendance_history(
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    user_id: Optional[int] = Query(None, description="Filter by user ID"),
+    _=Depends(admin_or_manager)
+):
+    """Get attendance history with optional filters."""
+    main_db = MainSession()
+    face_db = FaceSession()
+    try:
+        # Default to last 30 days if no dates specified
+        if not end_date:
+            end = datetime.now() + timedelta(days=1)
+        else:
+            try:
+                end = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format")
+        
+        if not start_date:
+            start = end - timedelta(days=30)
+        else:
+            try:
+                start = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format")
+        
+        # Get users
+        users = main_db.query(User).all()
+        user_map = {str(u.id): u for u in users}
+        
+        # Build query
+        query = face_db.query(Attendance).filter(
+            Attendance.timestamp >= start,
+            Attendance.timestamp < end
+        )
+        
+        # Filter by user if specified
+        if user_id:
+            emp = face_db.query(Employee).filter(Employee.user_id == str(user_id)).first()
+            if emp:
+                query = query.filter(Attendance.employee_id == emp.id)
+            else:
+                return {"records": [], "total": 0}
+        
+        records = query.order_by(Attendance.timestamp.desc()).all()
+        
+        # Get employees for mapping
+        employees = face_db.query(Employee).all()
+        emp_user_map = {e.id: user_map.get(e.user_id) for e in employees if e.user_id}
+        
+        result = []
+        for rec in records:
+            user = emp_user_map.get(rec.employee_id)
+            work_hours = None
+            if rec.check_in and rec.check_out:
+                seconds = (rec.check_out - rec.check_in).total_seconds()
+                work_hours = round(seconds / 3600, 2)
+            
+            result.append({
+                "id": rec.id,
+                "date": rec.timestamp.strftime("%Y-%m-%d") if rec.timestamp else None,
+                "employee_id": rec.employee_id,
+                "employee_name": rec.employee_name,
+                "email": user.email if user else None,
+                "role": user.role if user else None,
+                "check_in": rec.check_in.isoformat() if rec.check_in else None,
+                "check_out": rec.check_out.isoformat() if rec.check_out else None,
+                "work_hours": work_hours,
+                "confidence": round(rec.confidence, 2) if rec.confidence else None,
+            })
+        
+        return {
+            "start_date": start.strftime("%Y-%m-%d"),
+            "end_date": (end - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "total": len(result),
+            "records": result
+        }
+    finally:
+        main_db.close()
+        face_db.close()
+
+
+@router.post("/bulk")
+def bulk_add_attendance(
+    body: BulkAttendanceBody,
+    _=Depends(admin_or_manager)
+):
+    """
+    Add attendance records in bulk (admin/manager only).
+    Useful for importing historical data or marking attendance for multiple users.
+    """
+    main_db = MainSession()
+    face_db = FaceSession()
+    try:
+        results = {
+            "success": [],
+            "errors": []
+        }
+        
+        for item in body.records:
+            try:
+                # Get user
+                user = main_db.query(User).filter(User.id == item.user_id).first()
+                if not user:
+                    results["errors"].append({
+                        "user_id": item.user_id,
+                        "date": item.date,
+                        "error": "User not found"
+                    })
+                    continue
+                
+                # Get or check employee
+                emp = face_db.query(Employee).filter(Employee.user_id == str(item.user_id)).first()
+                if not emp:
+                    results["errors"].append({
+                        "user_id": item.user_id,
+                        "date": item.date,
+                        "error": "Employee face not registered"
+                    })
+                    continue
+                
+                # Parse date
+                try:
+                    record_date = datetime.strptime(item.date, "%Y-%m-%d")
+                except ValueError:
+                    results["errors"].append({
+                        "user_id": item.user_id,
+                        "date": item.date,
+                        "error": "Invalid date format. Use YYYY-MM-DD"
+                    })
+                    continue
+                
+                # Parse times
+                check_in_dt = None
+                check_out_dt = None
+                
+                if item.check_in:
+                    try:
+                        time_parts = item.check_in.split(":")
+                        check_in_dt = record_date.replace(
+                            hour=int(time_parts[0]),
+                            minute=int(time_parts[1]) if len(time_parts) > 1 else 0
+                        )
+                    except (ValueError, IndexError):
+                        results["errors"].append({
+                            "user_id": item.user_id,
+                            "date": item.date,
+                            "error": "Invalid check_in time format. Use HH:MM"
+                        })
+                        continue
+                
+                if item.check_out:
+                    try:
+                        time_parts = item.check_out.split(":")
+                        check_out_dt = record_date.replace(
+                            hour=int(time_parts[0]),
+                            minute=int(time_parts[1]) if len(time_parts) > 1 else 0
+                        )
+                    except (ValueError, IndexError):
+                        results["errors"].append({
+                            "user_id": item.user_id,
+                            "date": item.date,
+                            "error": "Invalid check_out time format. Use HH:MM"
+                        })
+                        continue
+                
+                # Check for existing record on this date
+                existing = (
+                    face_db.query(Attendance)
+                    .filter(
+                        Attendance.employee_id == emp.id,
+                        Attendance.timestamp >= record_date,
+                        Attendance.timestamp < record_date + timedelta(days=1),
+                    )
+                    .first()
+                )
+                
+                if existing:
+                    # Update existing record
+                    if check_in_dt:
+                        existing.check_in = check_in_dt
+                    if check_out_dt:
+                        existing.check_out = check_out_dt
+                    face_db.commit()
+                    results["success"].append({
+                        "user_id": item.user_id,
+                        "date": item.date,
+                        "action": "updated",
+                        "record_id": existing.id
+                    })
+                else:
+                    # Create new record
+                    new_rec = Attendance(
+                        employee_id=emp.id,
+                        employee_name=user.name,
+                        timestamp=record_date,
+                        check_in=check_in_dt,
+                        check_out=check_out_dt,
+                        confidence=1.0,  # Manual entry
+                    )
+                    face_db.add(new_rec)
+                    face_db.commit()
+                    face_db.refresh(new_rec)
+                    results["success"].append({
+                        "user_id": item.user_id,
+                        "date": item.date,
+                        "action": "created",
+                        "record_id": new_rec.id
+                    })
+                    
+            except Exception as e:
+                results["errors"].append({
+                    "user_id": item.user_id,
+                    "date": item.date,
+                    "error": str(e)
+                })
+        
+        return {
+            "message": f"Processed {len(body.records)} records",
+            "success_count": len(results["success"]),
+            "error_count": len(results["errors"]),
+            "results": results
+        }
+    finally:
+        main_db.close()
+        face_db.close()
+
+
+@router.delete("/bulk")
+def bulk_delete_attendance(
+    record_ids: List[int] = Query(..., description="List of attendance record IDs to delete"),
+    _=Depends(admin_or_manager)
+):
+    """Delete multiple attendance records at once (admin/manager only)."""
+    face_db = FaceSession()
+    try:
+        deleted_count = 0
+        not_found = []
+        
+        for record_id in record_ids:
+            record = face_db.query(Attendance).filter(Attendance.id == record_id).first()
+            if record:
+                face_db.delete(record)
+                deleted_count += 1
+            else:
+                not_found.append(record_id)
+        
+        face_db.commit()
+        
+        return {
+            "message": f"Deleted {deleted_count} records",
+            "deleted_count": deleted_count,
+            "not_found": not_found
+        }
+    finally:
+        face_db.close()

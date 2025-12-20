@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.notification import Notification
 from app.schemas.task import TaskCreate, TaskUpdate
 from ..utils.deps import admin_only, get_current_user
+from ..utils.email import send_task_assignment_email, send_task_status_update_email
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -33,6 +34,7 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db)):
     
     # Send notification to assigned user
     if task.assigned_to:
+        assignee = db.query(User).filter(User.id == task.assigned_to).first()
         notification = Notification(
             user_id=task.assigned_to,
             title="New Task Assigned",
@@ -41,6 +43,17 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db)):
         )
         db.add(notification)
         db.commit()
+        
+        # Send email notification
+        if assignee:
+            send_task_assignment_email(
+                to_email=assignee.email,
+                employee_name=assignee.name,
+                task_title=task.title,
+                task_description=task.description or "",
+                deadline=str(task.deadline) if task.deadline else None,
+                priority=task.priority or "medium"
+            )
     
     return new_task
 
@@ -101,6 +114,9 @@ def update_task(
     if not is_admin and task.assigned_to != user_obj.id:
         raise HTTPException(status_code=403, detail="You can only update tasks assigned to you")
     
+    # Store old status for email notification
+    old_status = task.status
+    
     # Build update dict with provided fields
     update_data = {}
     if data.status is not None:
@@ -113,6 +129,18 @@ def update_task(
         db.query(Task).filter(Task.id == task_id).update(update_data)
         db.commit()
         db.refresh(task)
+        
+        # Send email notification for status change
+        if data.status is not None and data.status != old_status:
+            assignee = db.query(User).filter(User.id == task.assigned_to).first()
+            if assignee:
+                send_task_status_update_email(
+                    to_email=assignee.email,
+                    employee_name=assignee.name,
+                    task_title=task.title,
+                    old_status=old_status or "pending",
+                    new_status=data.status
+                )
     
     assignee = db.query(User).filter(User.id == task.assigned_to).first()
     

@@ -45,7 +45,7 @@ const Login = () => {
           {/* Hero Text */}
           <div className="text-center mb-10 opacity-0 animate-fade-in-up">
             <h1 className="headline-large mb-3">Sign in</h1>
-            <p className="subhead">Use your Apple ID to continue.</p>
+            <p className="subhead">Welcome to Smart Task AI</p>
           </div>
 
           {/* Form */}
@@ -59,7 +59,7 @@ const Login = () => {
             <div>
               <input
                 type="email"
-                placeholder="Apple ID"
+                placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input-apple w-full"
@@ -90,11 +90,11 @@ const Login = () => {
 
           {/* Links */}
           <div className="text-center mt-8 space-y-4 opacity-0 animate-fade-in delay-400">
-            <button className="link-apple text-sm">
-              Forgot Apple ID or password?
-            </button>
+            <Link to="/forgot-password" className="link-apple text-sm block">
+              Forgot your password?
+            </Link>
             <p className="text-sm text-muted-foreground">
-              Don't have an Apple ID?{" "}
+              Don't have an account?{" "}
               <Link to="/signup" className="link-apple">Create yours now.</Link>
             </p>
           </div>
@@ -104,7 +104,7 @@ const Login = () => {
       {/* Footer */}
       <footer className="py-6 px-6 text-center opacity-0 animate-fade-in delay-600">
         <p className="text-xs text-muted-foreground">
-          Your Apple ID is the email you use for all Apple services.
+          Smart Task AI - Professional Task Management
         </p>
       </footer>
     </div>
