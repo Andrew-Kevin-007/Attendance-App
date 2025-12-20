@@ -660,7 +660,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 - **Documentation**: [Full Docs](DEPLOYMENT.md)
 - **Issues**: [GitHub Issues](https://github.com/Andrew-Kevin-007/Attendance-App/issues)
-- **Email**: support@yourdomain.com
+- **Email**: kevinandrew2559@gmail.com
 
 ---
 
@@ -708,7 +708,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 <div align="center">
 
-Made with ❤️ by the Smart Task AI Team
+Made with ❤️ by Me!!
 
 [⬆ Back to Top](#-smart-task-ai---attendance-tracker)
 
