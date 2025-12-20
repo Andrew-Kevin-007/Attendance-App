@@ -194,15 +194,23 @@ const Attendance: React.FC = () => {
                 </div>
                 <h1 className="text-2xl font-semibold tracking-tight mb-2">Face Not Registered</h1>
                 <p className="text-sm text-muted-foreground mb-6">
-                  Your face hasn't been registered in the system yet. Please contact your administrator
-                  or manager to register your face before you can mark attendance.
+                  Your face hasn't been registered yet. Register your face now to start marking attendance.
                 </p>
-                <button
-                  onClick={() => navigate("/dashboard")}
-                  className="inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-medium shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  Go to Dashboard
-                </button>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => navigate("/attendance/register")}
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground px-6 py-2.5 text-sm font-medium shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    <Camera className="h-4 w-4" />
+                    Register My Face
+                  </button>
+                  <button
+                    onClick={() => navigate("/dashboard")}
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-muted text-foreground px-5 py-2 text-sm font-medium shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    Go to Dashboard
+                  </button>
+                </div>
               </div>
             </div>
           </div>

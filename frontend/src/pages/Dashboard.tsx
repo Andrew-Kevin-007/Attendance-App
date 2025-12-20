@@ -12,6 +12,8 @@ import {
   ArrowRight,
   Loader2,
   AlertTriangle,
+  Camera,
+  X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { attendanceAPI } from "@/lib/attendance";
@@ -34,6 +36,8 @@ const Dashboard = () => {
   const [attnLoading, setAttnLoading] = useState(false);
   const [attnError, setAttnError] = useState<string>("");
   const [attnSummary, setAttnSummary] = useState<null | Awaited<ReturnType<typeof attendanceAPI.todaySummary>>>(null);
+  const [attendanceStatus, setAttendanceStatus] = useState<any>(null);
+  const [showFaceRegisterBanner, setShowFaceRegisterBanner] = useState(false);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -46,7 +50,22 @@ const Dashboard = () => {
         setStatsLoading(false);
       }
     };
+    
+    // Check if user needs to register face
+    const checkFaceRegistration = async () => {
+      try {
+        const status = await attendanceAPI.statusToday();
+        setAttendanceStatus(status);
+        if (status.registered === false) {
+          setShowFaceRegisterBanner(true);
+        }
+      } catch (e) {
+        // Silently fail
+      }
+    };
+    
     loadStats();
+    checkFaceRegistration();
   }, []);
 
   useEffect(() => {
@@ -70,6 +89,41 @@ const Dashboard = () => {
       <Navigation />
 
       <main className="pt-12">
+        {/* Face Registration Banner */}
+        {showFaceRegisterBanner && (
+          <div className="bg-gradient-to-r from-blue-500 to-purple-500 text-white">
+            <div className="container-apple py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="bg-white/20 rounded-full p-2">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium">Register Your Face for Attendance</p>
+                    <p className="text-sm text-white/90">
+                      Set up face recognition to easily mark your daily attendance
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Link
+                    to="/attendance/register"
+                    className="px-4 py-2 bg-white text-blue-600 rounded-full text-sm font-medium hover:bg-white/90 transition-colors"
+                  >
+                    Register Now
+                  </Link>
+                  <button
+                    onClick={() => setShowFaceRegisterBanner(false)}
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Hero Header */}
         <section className="py-16 md:py-20 border-b border-divider">
           <div className="container-apple">

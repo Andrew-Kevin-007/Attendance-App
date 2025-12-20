@@ -95,6 +95,99 @@ def get_my_tasks(db: Session = Depends(get_db), user=Depends(get_current_user)):
         })
     return result
 
+
+@router.get("/stats")
+def get_task_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Get task statistics for dashboard"""
+    # Total counts by status
+    total_tasks = db.query(Task).count()
+    completed = db.query(Task).filter(Task.status == "completed").count()
+    in_progress = db.query(Task).filter(Task.status == "in_progress").count()
+    pending = db.query(Task).filter(Task.status == "pending").count()
+    
+    # Priority distribution
+    high_priority = db.query(Task).filter(Task.priority == "high").count()
+    medium_priority = db.query(Task).filter(Task.priority == "medium").count()
+    low_priority = db.query(Task).filter(Task.priority == "low").count()
+    
+    # Overdue tasks (deadline passed and not completed)
+    today = datetime.now().date()
+    overdue = db.query(Task).filter(
+        Task.deadline < today,
+        Task.status != "completed"
+    ).count()
+    
+    # Team performance - tasks per user
+    team_stats = []
+    users = db.query(User).all()
+    for u in users:
+        user_tasks = db.query(Task).filter(Task.assigned_to == u.id).count()
+        user_completed = db.query(Task).filter(
+            Task.assigned_to == u.id,
+            Task.status == "completed"
+        ).count()
+        if user_tasks > 0:
+            team_stats.append({
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role,
+                "total_tasks": user_tasks,
+                "completed": user_completed,
+                "completion_rate": round((user_completed / user_tasks) * 100) if user_tasks > 0 else 0
+            })
+    
+    # Recent tasks (last 5)
+    recent = db.query(Task).order_by(Task.id.desc()).limit(5).all()
+    recent_tasks = []
+    for t in recent:
+        assignee = db.query(User).filter(User.id == t.assigned_to).first()
+        recent_tasks.append({
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "deadline": str(t.deadline) if t.deadline else None,
+            "assignee_name": assignee.name if assignee else "Unassigned"
+        })
+    
+    # Weekly trend (last 7 days) - tasks created per day
+    weekly_trend = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        # For simplicity, we'll just distribute existing tasks
+        # In a real app, you'd have created_at timestamps
+        day_name = day.strftime("%a")
+        weekly_trend.append({
+            "day": day_name,
+            "date": str(day),
+            "completed": 0,
+            "created": 0
+        })
+    
+    return {
+        "total": total_tasks,
+        "completed": completed,
+        "in_progress": in_progress,
+        "pending": pending,
+        "overdue": overdue,
+        "completion_rate": round((completed / total_tasks) * 100) if total_tasks > 0 else 0,
+        "priority_distribution": {
+            "high": high_priority,
+            "medium": medium_priority,
+            "low": low_priority
+        },
+        "status_distribution": {
+            "completed": completed,
+            "in_progress": in_progress,
+            "pending": pending
+        },
+        "team_performance": team_stats,
+        "recent_tasks": recent_tasks,
+        "weekly_trend": weekly_trend
+    }
+
+
 @router.put("/{task_id}")
 def update_task(
     task_id: int,
@@ -196,98 +289,6 @@ def get_task_by_id(
     }
 
 
-@router.get("/stats")
-def get_task_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Get task statistics for dashboard"""
-    # Total counts by status
-    total_tasks = db.query(Task).count()
-    completed = db.query(Task).filter(Task.status == "completed").count()
-    in_progress = db.query(Task).filter(Task.status == "in_progress").count()
-    pending = db.query(Task).filter(Task.status == "pending").count()
-    
-    # Priority distribution
-    high_priority = db.query(Task).filter(Task.priority == "high").count()
-    medium_priority = db.query(Task).filter(Task.priority == "medium").count()
-    low_priority = db.query(Task).filter(Task.priority == "low").count()
-    
-    # Overdue tasks (deadline passed and not completed)
-    today = datetime.now().date()
-    overdue = db.query(Task).filter(
-        Task.deadline < today,
-        Task.status != "completed"
-    ).count()
-    
-    # Team performance - tasks per user
-    team_stats = []
-    users = db.query(User).all()
-    for u in users:
-        user_tasks = db.query(Task).filter(Task.assigned_to == u.id).count()
-        user_completed = db.query(Task).filter(
-            Task.assigned_to == u.id,
-            Task.status == "completed"
-        ).count()
-        if user_tasks > 0:
-            team_stats.append({
-                "id": u.id,
-                "name": u.name,
-                "email": u.email,
-                "role": u.role,
-                "total_tasks": user_tasks,
-                "completed": user_completed,
-                "completion_rate": round((user_completed / user_tasks) * 100) if user_tasks > 0 else 0
-            })
-    
-    # Recent tasks (last 5)
-    recent = db.query(Task).order_by(Task.id.desc()).limit(5).all()
-    recent_tasks = []
-    for t in recent:
-        assignee = db.query(User).filter(User.id == t.assigned_to).first()
-        recent_tasks.append({
-            "id": t.id,
-            "title": t.title,
-            "status": t.status,
-            "priority": t.priority,
-            "deadline": str(t.deadline) if t.deadline else None,
-            "assignee_name": assignee.name if assignee else "Unassigned"
-        })
-    
-    # Weekly trend (last 7 days) - tasks created per day
-    weekly_trend = []
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        # For simplicity, we'll just distribute existing tasks
-        # In a real app, you'd have created_at timestamps
-        day_name = day.strftime("%a")
-        weekly_trend.append({
-            "day": day_name,
-            "date": str(day),
-            "completed": 0,
-            "created": 0
-        })
-    
-    return {
-        "total": total_tasks,
-        "completed": completed,
-        "in_progress": in_progress,
-        "pending": pending,
-        "overdue": overdue,
-        "completion_rate": round((completed / total_tasks) * 100) if total_tasks > 0 else 0,
-        "priority_distribution": {
-            "high": high_priority,
-            "medium": medium_priority,
-            "low": low_priority
-        },
-        "status_distribution": {
-            "completed": completed,
-            "in_progress": in_progress,
-            "pending": pending
-        },
-        "team_performance": team_stats,
-        "recent_tasks": recent_tasks,
-        "weekly_trend": weekly_trend
-    }
-
-
 @router.delete("/{task_id}", dependencies=[Depends(admin_only)])
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     """Delete a task (admin only)"""
@@ -297,3 +298,4 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     db.delete(task)
     db.commit()
     return {"message": "Task deleted"}
+

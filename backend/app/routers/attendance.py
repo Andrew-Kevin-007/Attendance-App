@@ -22,8 +22,8 @@ if backend_root not in sys.path:
     sys.path.insert(0, backend_root)
 
 from database import Session as FaceSession  # type: ignore
-from models import Employee, Attendance  # type: ignore
-from face_utils import get_face_encoding, compare_faces, encoding_to_bytes, bytes_to_encoding  # type: ignore
+from models import Employee, Attendance, FaceSample  # type: ignore
+from face_utils import get_face_encoding, compare_faces, compare_faces_multi, encoding_to_bytes, bytes_to_encoding  # type: ignore
 from config import Config  # type: ignore
 import cv2  # type: ignore
 
@@ -34,6 +34,7 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 class RegisterFaceBody(BaseModel):
     user_id: int
     image: str  # data URL (image/jpeg)
+    add_sample: bool = False  # If True, adds additional training sample instead of replacing
 
 
 class MarkBody(BaseModel):
@@ -143,15 +144,43 @@ def register_face(body: RegisterFaceBody, _=Depends(admin_or_manager)):
             .filter((Employee.user_id == str(body.user_id)) | (Employee.email == email))
             .first()
         )
+        
+        # Calculate quality score
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        quality_score = float(cv2.Laplacian(gray, cv2.CV_64F).var() / 1000.0)  # Normalize
+        
         if existing:
-            existing.name = name
-            existing.email = email
-            existing.user_id = str(body.user_id)
-            existing.face_encoding = encoding_to_bytes(encoding)
-            face_db.commit()
-            face_db.refresh(existing)
-            return {"message": "Face updated for user", "employee_id": existing.id}
+            if body.add_sample:
+                # Add as additional training sample
+                sample = FaceSample(
+                    employee_id=existing.id,
+                    face_encoding=encoding_to_bytes(encoding),
+                    quality_score=quality_score
+                )
+                face_db.add(sample)
+                face_db.commit()
+                
+                # Count total samples
+                sample_count = face_db.query(FaceSample).filter(
+                    FaceSample.employee_id == existing.id
+                ).count() + 1  # +1 for primary encoding
+                
+                return {
+                    "message": f"Training sample added ({sample_count} total samples)",
+                    "employee_id": existing.id,
+                    "sample_count": sample_count
+                }
+            else:
+                # Update primary encoding
+                existing.name = name
+                existing.email = email
+                existing.user_id = str(body.user_id)
+                existing.face_encoding = encoding_to_bytes(encoding)
+                face_db.commit()
+                face_db.refresh(existing)
+                return {"message": "Face updated for user", "employee_id": existing.id}
         else:
+            # Create new employee with primary encoding
             emp = Employee(
                 name=name,
                 email=email,
@@ -199,19 +228,60 @@ def mark_attendance(body: MarkBody, user=Depends(get_current_user)):
 
         best_match = None
         best_conf = 0.0
+        all_matches = []  # For debugging
+        
         for emp in employees:
-            stored = bytes_to_encoding(emp.face_encoding)
-            is_match, conf = compare_faces(stored, encoding)
+            # Collect all encodings for this employee (primary + samples)
+            encodings = [bytes_to_encoding(emp.face_encoding)]
+            
+            # Add additional training samples
+            samples = face_db.query(FaceSample).filter(
+                FaceSample.employee_id == emp.id
+            ).all()
+            for sample in samples:
+                encodings.append(bytes_to_encoding(sample.face_encoding))
+            
+            # Compare against all encodings (uses best match)
+            is_match, conf = compare_faces_multi(encodings, encoding, tolerance=0.50)  # 50% confidence
+            all_matches.append(f"{emp.name}: {conf:.1%} ({len(encodings)} samples)")
+            
             if is_match and conf > best_conf:
                 best_match = emp
                 best_conf = conf
 
         if not best_match:
-            raise HTTPException(status_code=404, detail="Face not recognized")
+            matches_info = ", ".join(all_matches[:3]) if all_matches else "No faces to compare"
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Face not recognized. Top matches: {matches_info}. Try: 1) Better lighting 2) Face camera directly 3) Register more training samples"
+            )
 
         # Verify recognized identity is the current user
         if best_match.user_id != str(user["id"]):
             raise HTTPException(status_code=403, detail="Face does not match current user")
+
+        # Auto-train: Add successful captures as training samples (with quality threshold)
+        # Only add if confidence is good and we don't have too many samples already
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        quality_score = float(cv2.Laplacian(gray, cv2.CV_64F).var() / 1000.0)
+        
+        sample_count = face_db.query(FaceSample).filter(
+            FaceSample.employee_id == best_match.id
+        ).count()
+        
+        # Add to training if: high confidence (>70%), good quality (>50), and <20 samples
+        if best_conf > 0.70 and quality_score > 0.05 and sample_count < 20:
+            try:
+                new_sample = FaceSample(
+                    employee_id=best_match.id,
+                    face_encoding=encoding_to_bytes(encoding),
+                    quality_score=quality_score
+                )
+                face_db.add(new_sample)
+                face_db.commit()
+            except Exception:
+                # Silently fail - training is optional
+                pass
 
         # Check for existing record today
         today = date.today()
