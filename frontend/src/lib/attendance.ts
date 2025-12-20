@@ -93,7 +93,7 @@ export const attendanceAPI = {
     return json;
   },
 
-  async registerFace(user_id: number, imageDataUrl: string) {
+  async registerFace(user_id: number, imageDataUrl: string, add_sample: boolean = false) {
     const token = getToken();
     const res = await fetch(`${API_BASE_URL}/attendance/register`, {
       method: "POST",
@@ -101,13 +101,13 @@ export const attendanceAPI = {
         "Content-Type": "application/json",
         ...(token && { Authorization: `Bearer ${token}` }),
       },
-      body: JSON.stringify({ user_id, image: imageDataUrl }),
+      body: JSON.stringify({ user_id, image: imageDataUrl, add_sample }),
     });
     const json = await res.json().catch(() => ({ detail: "Invalid response" }));
     if (!res.ok) {
       throw new Error(json?.detail?.message || json?.detail || "Failed to register face");
     }
-    return json as { message: string; employee_id: number };
+    return json as { message: string; employee_id: number; sample_count?: number };
   },
 
   async todaySummary(): Promise<AttendanceSummary> {

@@ -192,30 +192,38 @@ def detect_basic_liveness(frame, face_coords):
     
     return True, ""
 
-def compare_faces(known_encoding, unknown_encoding, tolerance=0.35):
-    """Compare two face encodings and return match status with confidence"""
+def compare_faces(known_encoding, unknown_encoding, tolerance=0.5):
+    """Compare two face encodings and return match status with confidence
+    
+    Args:
+        tolerance: Higher = more lenient (0.5 = 50% confidence required)
+    """
     # Calculate multiple distance metrics for robust matching
     
-    # 1. Euclidean distance
+    # 1. Euclidean distance (L2 norm)
     euclidean_dist = np.linalg.norm(known_encoding - unknown_encoding)
     
-    # 2. Cosine similarity
+    # 2. Cosine similarity (best for normalized vectors)
     cosine_sim = np.dot(known_encoding, unknown_encoding) / (
         np.linalg.norm(known_encoding) * np.linalg.norm(unknown_encoding) + 1e-10
     )
     
-    # 3. Manhattan distance
+    # 3. Manhattan distance (L1 norm - less sensitive to outliers)
     manhattan_dist = np.sum(np.abs(known_encoding - unknown_encoding))
     
-    # Normalize distances to 0-1 range
-    euclidean_normalized = min(euclidean_dist / 500.0, 1.0)
-    manhattan_normalized = min(manhattan_dist / 5000.0, 1.0)
+    # 4. Correlation coefficient
+    corr = np.corrcoef(known_encoding, unknown_encoding)[0, 1]
     
-    # Combined confidence score (weighted average)
+    # Normalize distances to 0-1 range (with better scaling)
+    euclidean_normalized = 1.0 / (1.0 + euclidean_dist / 100.0)  # Adjusted scaling
+    manhattan_normalized = 1.0 / (1.0 + manhattan_dist / 1000.0)  # Adjusted scaling
+    
+    # Combined confidence score (weighted average favoring cosine similarity)
     confidence = float(
-        0.4 * (1.0 - euclidean_normalized) +
-        0.4 * cosine_sim +
-        0.2 * (1.0 - manhattan_normalized)
+        0.35 * euclidean_normalized +
+        0.40 * cosine_sim +
+        0.15 * manhattan_normalized +
+        0.10 * corr
     )
     
     # Ensure confidence is in valid range
@@ -225,6 +233,34 @@ def compare_faces(known_encoding, unknown_encoding, tolerance=0.35):
     match = confidence >= (1.0 - tolerance)
     
     return match, confidence
+
+
+def compare_faces_multi(known_encodings, unknown_encoding, tolerance=0.5):
+    """Compare unknown face against multiple known encodings
+    
+    Uses best match and average confidence from all samples for better accuracy.
+    """
+    if not known_encodings:
+        return False, 0.0
+    
+    confidences = []
+    for known_enc in known_encodings:
+        _, conf = compare_faces(known_enc, unknown_encoding, tolerance)
+        confidences.append(conf)
+    
+    # Use maximum confidence (best match)
+    best_confidence = max(confidences)
+    
+    # Also consider average confidence for consistency
+    avg_confidence = np.mean(confidences)
+    
+    # Final confidence: weighted combination
+    final_confidence = 0.7 * best_confidence + 0.3 * avg_confidence
+    
+    # Match if best confidence exceeds threshold
+    match = best_confidence >= (1.0 - tolerance)
+    
+    return match, float(final_confidence)
 
 def encoding_to_bytes(encoding):
     """Convert numpy array to bytes for database storage"""

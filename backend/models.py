@@ -10,15 +10,34 @@ class Employee(Base):
     user_id = Column(String(100), unique=True, nullable=True, index=True)  # Link to main app user
     name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    face_encoding = Column(LargeBinary, nullable=False)
+    face_encoding = Column(LargeBinary, nullable=False)  # Primary/first encoding
     registered_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Integer, default=1)  # Soft delete flag
     
-    # Relationship
+    # Relationships
     attendance_records = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
+    face_samples = relationship("FaceSample", back_populates="employee", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Employee(id={self.id}, name='{self.name}', email='{self.email}')>"
+
+
+class FaceSample(Base):
+    """Store multiple face samples per employee for better recognition accuracy"""
+    __tablename__ = "face_samples"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey('employees.id', ondelete='CASCADE'), nullable=False, index=True)
+    face_encoding = Column(LargeBinary, nullable=False)
+    captured_at = Column(DateTime, default=datetime.utcnow)
+    quality_score = Column(Float, default=0.0)  # Image quality metric
+    
+    # Relationship
+    employee = relationship("Employee", back_populates="face_samples")
+    
+    def __repr__(self):
+        return f"<FaceSample(id={self.id}, employee_id={self.employee_id})>"
+
 
 class Attendance(Base):
     __tablename__ = "attendance"

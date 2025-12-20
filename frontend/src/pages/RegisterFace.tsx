@@ -13,6 +13,7 @@ const RegisterFace: React.FC = () => {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string>("");
+  const [addSample, setAddSample] = useState(false); // New: toggle for adding training sample
   const [status, setStatus] = useState<
     | { state: "idle" }
     | { state: "capturing" }
@@ -45,15 +46,15 @@ const RegisterFace: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!isAllowed) {
-      navigate("/dashboard", { replace: true });
-      return;
-    }
-
     const fetchUsers = async () => {
       try {
         const data = await attendanceAPI.listUsers();
         setUsers(data);
+        
+        // Auto-select current user if they're not admin/manager (self-registration)
+        if (!isAllowed && current?.id) {
+          setSelectedId(current.id);
+        }
       } catch (e: any) {
         // Silently fail - users list is optional
       } finally {
@@ -69,7 +70,7 @@ const RegisterFace: React.FC = () => {
         (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       }
     };
-  }, [isAllowed, navigate]);
+  }, [isAllowed, current, navigate]);
 
   const captureAndRegister = async () => {
     if (!videoRef.current || !canvasRef.current || !selectedId) return;
@@ -90,7 +91,7 @@ const RegisterFace: React.FC = () => {
 
     setStatus({ state: "processing" });
     try {
-      const res = await attendanceAPI.registerFace(Number(selectedId), dataUrl);
+      const res = await attendanceAPI.registerFace(Number(selectedId), dataUrl, addSample);
       setStatus({ state: "success", msg: res.message || "Face registered successfully!" });
     } catch (e: any) {
       let msg = "Registration failed";
@@ -131,32 +132,68 @@ const RegisterFace: React.FC = () => {
           {/* Left Panel - Employee Selection */}
           <div className="lg:col-span-1 space-y-6">
             <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-6">
-              <h2 className="text-sm font-medium mb-4">Select Employee</h2>
+              <h2 className="text-sm font-medium mb-4">
+                {isAllowed ? "Select Employee" : "Register Your Face"}
+              </h2>
               
-              <select
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                value={selectedId}
-                onChange={(e) => {
-                  setSelectedId(e.target.value ? Number(e.target.value) : "");
-                  setStatus({ state: "idle" });
-                }}
-                disabled={loadingUsers}
-              >
-                <option value="">{loadingUsers ? "Loading employees..." : "Choose an employee"}</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.email})
-                  </option>
-                ))}
-              </select>
+              {isAllowed ? (
+                <>
+                  <select
+                    className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    value={selectedId}
+                    onChange={(e) => {
+                      setSelectedId(e.target.value ? Number(e.target.value) : "");
+                      setStatus({ state: "idle" });
+                    }}
+                    disabled={loadingUsers}
+                  >
+                    <option value="">{loadingUsers ? "Loading employees..." : "Choose an employee"}</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.email})
+                      </option>
+                    ))}
+                  </select>
 
-              {selectedUser && (
-                <div className="mt-4 p-4 rounded-xl bg-muted/30 border border-border/40">
-                  <p className="text-sm font-medium">{selectedUser.name}</p>
-                  <p className="text-xs text-muted-foreground">{selectedUser.email}</p>
-                  <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary capitalize">
-                    {selectedUser.role}
-                  </span>
+                  {selectedUser && (
+                    <div className="mt-4 p-4 rounded-xl bg-muted/30 border border-border/40">
+                      <p className="text-sm font-medium">{selectedUser.name}</p>
+                      <p className="text-xs text-muted-foreground">{selectedUser.email}</p>
+                      <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary capitalize">
+                        {selectedUser.role}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
+                  <p className="text-sm font-medium">{current?.name}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{current?.email}</p>
+                  <p className="text-xs text-primary mt-2 font-medium">
+                    ✓ You're registering your own face
+                  </p>
+                </div>
+              )}
+
+              {/* Training Mode Toggle */}
+              {selectedId && (
+                <div className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                  <label className="flex items-start gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={addSample}
+                      onChange={(e) => setAddSample(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium group-hover:text-primary transition-colors">
+                        Add Training Sample
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Add an additional photo to improve recognition accuracy
+                      </p>
+                    </div>
+                  </label>
                 </div>
               )}
             </div>
@@ -180,6 +217,10 @@ const RegisterFace: React.FC = () => {
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-medium">4</span>
                   Click "Capture & Register" to save
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/30 text-blue-600 flex items-center justify-center text-[10px] font-medium">💡</span>
+                  <strong>Tip:</strong> Add 2-3 training samples from different angles for best accuracy
                 </li>
               </ul>
             </div>
@@ -261,7 +302,8 @@ const RegisterFace: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      <Camera className="h-4 w-4" /> Capture & Register
+                      <Camera className="h-4 w-4" /> 
+                      {addSample ? "Add Training Sample" : "Capture & Register"}
                     </>
                   )}
                 </button>

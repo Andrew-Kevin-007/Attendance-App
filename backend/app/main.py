@@ -22,14 +22,12 @@ app = FastAPI(
 )
 
 # CORS Configuration - Must be before routers
-allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:8080,http://localhost:8081,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175")
-allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",")]
-
+# Note: When using allow_origins=["*"], allow_credentials must be False
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_origins=["*"],
+    allow_credentials=False,  # Must be False when allow_origins is "*"
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=3600,
